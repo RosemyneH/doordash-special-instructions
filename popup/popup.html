@@ -1,0 +1,30 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>DoorDash Special Instructions</title>
+    <link rel="stylesheet" href="popup.css" />
+  </head>
+  <body>
+    <h1>Special instructions</h1>
+    <p class="hint">
+      DoorDash sometimes hides the notes field. This uses your logged-in session to
+      update cart items via the same API the site uses.
+    </p>
+    <label for="instructions">Default note (per line item)</label>
+    <textarea id="instructions" rows="5" spellcheck="true"></textarea>
+    <label for="fulfillment">Fulfillment</label>
+    <select id="fulfillment">
+      <option value="Delivery">Delivery</option>
+      <option value="Pickup">Pickup</option>
+    </select>
+    <label class="checkbox">
+      <input type="checkbox" id="autoCheckout" />
+      Auto-apply on checkout page
+    </label>
+    <button type="button" id="save">Save</button>
+    <button type="button" id="apply" class="primary">Apply to cart now</button>
+    <p id="status" role="status"></p>
+    <script src="popup.js" type="module"></script>
+  </body>
+</html>

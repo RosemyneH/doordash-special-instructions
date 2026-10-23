@@ -1,0 +1,28 @@
+{
+  "manifest_version": 3,
+  "name": "DoorDash Special Instructions",
+  "version": "1.0.0",
+  "description": "Apply item special instructions on DoorDash when the site hides the notes field.",
+  "icons": {
+    "16": "icons/icon16.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
+  },
+  "permissions": ["storage"],
+  "host_permissions": ["https://www.doordash.com/*"],
+  "action": {
+    "default_title": "DoorDash Special Instructions",
+    "default_popup": "popup/popup.html",
+    "default_icon": {
+      "16": "icons/icon16.png",
+      "48": "icons/icon48.png"
+    }
+  },
+  "content_scripts": [
+    {
+      "matches": ["https://www.doordash.com/*"],
+      "js": ["src/api.js", "src/content.js"],
+      "run_at": "document_idle"
+    }
+  ]
+}
