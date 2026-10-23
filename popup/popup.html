@@ -8,19 +8,15 @@
   <body>
     <h1>Special instructions</h1>
     <p class="hint">
-      Opens an editor on the DoorDash tab with one notes box per cart item, like
-      the old “Add special instructions” field.
+      Edit boxes are added directly on your cart (open the cart drawer or go to
+      checkout). Each item gets its own “Special instructions” field.
     </p>
     <label for="fulfillment">Fulfillment</label>
     <select id="fulfillment">
       <option value="Delivery">Delivery</option>
       <option value="Pickup">Pickup</option>
     </select>
-    <label class="checkbox">
-      <input type="checkbox" id="autoCheckout" />
-      Open editor automatically on checkout
-    </label>
-    <button type="button" id="open" class="primary">Open editor on this tab</button>
+    <button type="button" id="refresh" class="primary">Refresh fields on tab</button>
     <p id="status" role="status"></p>
     <script src="popup.js" type="module"></script>
   </body>

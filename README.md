@@ -15,12 +15,8 @@ It runs in your browser while you are logged in and calls the same consumer Grap
 ## Usage
 
 1. Add items to your DoorDash cart (signed in).
-2. Click **Special instructions** (floating button, bottom-right) or use the extension popup → **Open editor on this tab**.
-3. Edit the note **for each line item** in the side panel (same idea as DoorDash’s old per-item field).
-4. Click **Save**.
-
-- **Auto-open on checkout** — optional; opens the editor once when you reach checkout.
-- On checkout URLs with `order_cart_id`, only that cart is edited.
+2. Open the **cart drawer** or go to **checkout**.
+3. Each line item shows a **Special instructions** text box in place of DoorDash’s hidden/removed field (saves automatically when you pause typing).
 
 Reload the DoorDash tab after installing or updating the extension.
 
