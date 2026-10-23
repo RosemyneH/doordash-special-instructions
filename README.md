@@ -14,10 +14,13 @@ It runs in your browser while you are logged in and calls the same consumer Grap
 
 ## Usage
 
-- **Default note** — saved in extension sync storage (e.g. `No tomato`, `No pico`). Each line in the textarea is sent as one block of text for every cart line item.
-- **Apply to cart now** — updates all items in open cart(s). On a restaurant page, only that store’s cart is targeted when the URL contains a store id.
-- **Auto-apply on checkout** — optional; runs once per checkout URL when you land on checkout.
-- **Floating button** — bottom-right on DoorDash pages for a quick re-apply after you change the cart.
+1. Add items to your DoorDash cart (signed in).
+2. Click **Special instructions** (floating button, bottom-right) or use the extension popup → **Open editor on this tab**.
+3. Edit the note **for each line item** in the side panel (same idea as DoorDash’s old per-item field).
+4. Click **Save**.
+
+- **Auto-open on checkout** — optional; opens the editor once when you reach checkout.
+- On checkout URLs with `order_cart_id`, only that cart is edited.
 
 Reload the DoorDash tab after installing or updating the extension.
 

@@ -1,16 +1,12 @@
 const STORAGE_KEYS = {
-  instructions: "defaultInstructions",
   fulfillment: "fulfillmentType",
   autoCheckout: "autoOnCheckout",
 };
-
-const appliedCarts = new Set();
 
 function readSettings() {
   return new Promise((resolve) => {
     chrome.storage.sync.get(
       {
-        [STORAGE_KEYS.instructions]: "No tomato\nNo pico",
         [STORAGE_KEYS.fulfillment]: "Delivery",
         [STORAGE_KEYS.autoCheckout]: false,
       },
@@ -28,8 +24,8 @@ function showToast(message, isError) {
   Object.assign(el.style, {
     position: "fixed",
     bottom: "24px",
-    right: "24px",
-    zIndex: "2147483647",
+    left: "24px",
+    zIndex: "2147483644",
     maxWidth: "320px",
     padding: "12px 16px",
     borderRadius: "8px",
@@ -42,83 +38,58 @@ function showToast(message, isError) {
   setTimeout(() => el.remove(), 5000);
 }
 
-async function applyFromPage() {
+async function openEditor() {
   const settings = await readSettings();
-  const storeId = DoorDashSpecialInstructionsApi.storeIdFromUrl();
   try {
-    const results = await DoorDashSpecialInstructionsApi.applyInstructionsToCarts(
-      settings[STORAGE_KEYS.instructions],
-      {
-        storeId,
-        fulfillmentType: settings[STORAGE_KEYS.fulfillment],
-        skipUnchanged: true,
-      },
-    );
-    const updated = results.filter((r) => !r.skipped).length;
-    if (updated === 0) {
-      showToast("Instructions already set on cart items.");
-    } else {
-      showToast(`Updated ${updated} item(s).`);
-    }
-    return { ok: true, updated };
+    await DoorDashSpecialInstructionsPanel.openPanel({
+      fulfillmentType: settings[STORAGE_KEYS.fulfillment],
+    });
   } catch (err) {
-    showToast(err.message || "Could not update cart.", true);
-    return { ok: false, error: String(err) };
+    showToast(err.message || "Could not open editor.", true);
   }
 }
 
-function injectButton() {
-  if (document.getElementById("ddsi-apply-btn")) return;
+function injectFab() {
+  if (document.getElementById("ddsi-fab")) return;
 
   const btn = document.createElement("button");
-  btn.id = "ddsi-apply-btn";
+  btn.id = "ddsi-fab";
   btn.type = "button";
-  btn.textContent = "Apply special instructions";
-  Object.assign(btn.style, {
-    position: "fixed",
-    bottom: "80px",
-    right: "24px",
-    zIndex: "2147483646",
-    padding: "10px 14px",
-    border: "none",
-    borderRadius: "999px",
-    font: "600 13px system-ui, sans-serif",
-    cursor: "pointer",
-    color: "#fff",
-    background: "#FF3008",
-    boxShadow: "0 4px 16px rgba(0,0,0,.25)",
-  });
-
-  btn.addEventListener("click", async () => {
-    btn.disabled = true;
-    btn.textContent = "Applying…";
-    await applyFromPage();
-    btn.disabled = false;
-    btn.textContent = "Apply special instructions";
-  });
-
+  btn.className = "ddsi-fab";
+  btn.textContent = "Special instructions";
+  btn.addEventListener("click", openEditor);
   document.documentElement.appendChild(btn);
 }
 
-function maybeAutoApply() {
+const autoOpened = new Set();
+
+function maybeAutoOpen() {
   const onCheckout = /\/consumer\/checkout/.test(location.pathname);
   if (!onCheckout) return;
 
   readSettings().then((settings) => {
     if (!settings[STORAGE_KEYS.autoCheckout]) return;
-    const cartKey = new URLSearchParams(location.search).get("order_cart_id") || location.pathname;
-    if (appliedCarts.has(cartKey)) return;
-    appliedCarts.add(cartKey);
-    applyFromPage();
+    const key =
+      new URLSearchParams(location.search).get("order_cart_id") ||
+      location.pathname;
+    if (autoOpened.has(key)) return;
+    autoOpened.add(key);
+    openEditor();
   });
 }
 
 chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
-  if (msg?.type === "ddsi-apply") {
-    applyFromPage().then(sendResponse);
+  if (msg?.type === "ddsi-open-panel") {
+    openEditor().then(() => sendResponse({ ok: true }));
+    return true;
+  }
+  if (msg?.type === "ddsi-list") {
+    DoorDashSpecialInstructionsApi.listCartLines()
+      .then((lines) => sendResponse({ ok: true, lines }))
+      .catch((err) => sendResponse({ ok: false, error: String(err) }));
     return true;
   }
 });
 
-injectButton();
-maybeAutoApply();
+injectFab();
+maybeAutoOpen();

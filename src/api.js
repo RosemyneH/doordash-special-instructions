@@ -1,5 +1,7 @@
 const DD = (globalThis.DoorDashSpecialInstructionsApi = {});
 
+const INSTRUCTIONS_MAX = 500;
+
 const LIST_CARTS = `query listCarts($input: ListCartsInput!) {
   listCarts(input: $input) {
     id
@@ -9,6 +11,23 @@ const LIST_CARTS = `query listCarts($input: ListCartsInput!) {
         id
         quantity
         specialInstructions
+        nestedOptions
+        item { id name }
+      }
+    }
+  }
+}`;
+
+const CONSUMER_CART = `query consumerOrderCart {
+  consumerOrderCart {
+    id
+    restaurant { id name }
+    orders {
+      orderItems {
+        id
+        quantity
+        specialInstructions
+        nestedOptions
         item { id name }
       }
     }
@@ -65,7 +84,12 @@ async function graphql(operationName, query, variables) {
     headers: graphqlHeaders(),
     body: JSON.stringify({ operationName, query, variables }),
   });
-  const body = await res.json();
+  let body;
+  try {
+    body = await res.json();
+  } catch {
+    throw new Error("DoorDash returned an unexpected response. Refresh the page.");
+  }
   if (!res.ok) {
     throw new Error(body?.message || `HTTP ${res.status}`);
   }
@@ -75,7 +99,30 @@ async function graphql(operationName, query, variables) {
   return body.data;
 }
 
-DD.listOpenCarts = async function listOpenCarts(storeId) {
+function flattenCart(cart) {
+  const storeId = cart.restaurant?.id;
+  const storeName = cart.restaurant?.name || "Store";
+  const lines = [];
+  for (const order of cart.orders ?? []) {
+    for (const line of order.orderItems ?? []) {
+      if (!line?.id || !line.item?.id) continue;
+      lines.push({
+        cartId: cart.id,
+        cartItemId: line.id,
+        itemId: line.item.id,
+        itemName: line.item.name || "Item",
+        quantity: line.quantity ?? 1,
+        storeId: String(storeId),
+        storeName,
+        specialInstructions: line.specialInstructions ?? "",
+        nestedOptions: line.nestedOptions,
+      });
+    }
+  }
+  return lines;
+}
+
+async function fetchListCarts(storeId) {
   const multiCtx = storeId ? { storeId: String(storeId) } : {};
   const data = await graphql("listCarts", LIST_CARTS, {
     input: {
@@ -83,10 +130,49 @@ DD.listOpenCarts = async function listOpenCarts(storeId) {
         experienceCase: "MULTI_CART_EXPERIENCE_CONTEXT",
         multiCartExperienceContext: multiCtx,
       },
-      cartFilter: { shouldIncludeSubmitted: false },
+      cartFilter: { shouldIncludeSubmitted: true },
     },
   });
   return data?.listCarts ?? [];
+}
+
+DD.INSTRUCTIONS_MAX = INSTRUCTIONS_MAX;
+
+DD.cartIdFromUrl = function cartIdFromUrl() {
+  return new URLSearchParams(location.search).get("order_cart_id");
+};
+
+DD.storeIdFromUrl = function storeIdFromUrl() {
+  const m = location.pathname.match(/\/store\/[^/]+-(\d+)\//);
+  return m ? m[1] : null;
+};
+
+DD.listCartLines = async function listCartLines(options = {}) {
+  const storeId = options.storeId ?? DD.storeIdFromUrl();
+  const cartId = options.cartId ?? DD.cartIdFromUrl();
+
+  let carts = await fetchListCarts(storeId);
+  if (!carts.length && storeId) {
+    carts = await fetchListCarts(null);
+  }
+  if (!carts.length) {
+    const data = await graphql("consumerOrderCart", CONSUMER_CART, {});
+    const one = data?.consumerOrderCart;
+    if (one) carts = [one];
+  }
+
+  if (cartId) {
+    const filtered = carts.filter((c) => c.id === cartId);
+    if (filtered.length) carts = filtered;
+  }
+
+  const lines = carts.flatMap(flattenCart);
+  if (!lines.length) {
+    throw new Error(
+      "No cart items found. Add food to your cart while signed in, then try again.",
+    );
+  }
+  return lines;
 };
 
 DD.updateItemInstructions = async function updateItemInstructions({
@@ -98,6 +184,11 @@ DD.updateItemInstructions = async function updateItemInstructions({
   specialInstructions,
   fulfillmentType,
 }) {
+  const text = specialInstructions ?? "";
+  if (text.length > INSTRUCTIONS_MAX) {
+    throw new Error(`Instructions must be ${INSTRUCTIONS_MAX} characters or less.`);
+  }
+
   const data = await graphql("updateCartItem", UPDATE_CART_ITEM, {
     updateCartItemApiParams: {
       cartId,
@@ -105,7 +196,7 @@ DD.updateItemInstructions = async function updateItemInstructions({
       itemId,
       quantity,
       storeId: String(storeId),
-      specialInstructions,
+      specialInstructions: text,
       purchaseTypeOptions: {
         purchaseType: "PURCHASE_TYPE_UNSPECIFIED",
         continuousQuantity: 0,
@@ -122,69 +213,30 @@ DD.updateItemInstructions = async function updateItemInstructions({
   return data?.updateCartItemV2;
 };
 
-DD.applyInstructionsToCarts = async function applyInstructionsToCarts(
+DD.saveCartLineInstructions = async function saveCartLineInstructions(
+  line,
   specialInstructions,
-  options = {},
+  fulfillmentType,
 ) {
-  const text = (specialInstructions || "").trim();
-  if (!text) {
-    throw new Error("Enter special instructions first.");
-  }
-
-  const carts = await DD.listOpenCarts(options.storeId);
-  if (!carts.length) {
-    throw new Error("No open DoorDash cart found. Add items while logged in.");
-  }
-
-  const fulfillmentType = options.fulfillmentType || "Delivery";
-  const results = [];
-
-  for (const cart of carts) {
-    const storeId = cart.restaurant?.id;
-    if (!storeId) continue;
-
-    for (const order of cart.orders ?? []) {
-      for (const line of order.orderItems ?? []) {
-        const itemId = line.item?.id;
-        if (!line.id || !itemId) continue;
-        if (
-          options.skipUnchanged &&
-          (line.specialInstructions || "").trim() === text
-        ) {
-          results.push({
-            cartId: cart.id,
-            name: line.item?.name || "Item",
-            skipped: true,
-          });
-          continue;
-        }
-
-        await DD.updateItemInstructions({
-          cartId: cart.id,
-          cartItemId: line.id,
-          itemId,
-          quantity: line.quantity ?? 1,
-          storeId,
-          specialInstructions: text,
-          fulfillmentType,
-        });
-        results.push({
-          cartId: cart.id,
-          name: line.item?.name || "Item",
-          skipped: false,
-        });
-      }
-    }
-  }
-
-  if (!results.length) {
-    throw new Error("Cart has no line items to update.");
-  }
-
-  return results;
+  return DD.updateItemInstructions({
+    cartId: line.cartId,
+    cartItemId: line.cartItemId,
+    itemId: line.itemId,
+    quantity: line.quantity,
+    storeId: line.storeId,
+    specialInstructions,
+    fulfillmentType,
+  });
 };
 
-DD.storeIdFromUrl = function storeIdFromUrl() {
-  const m = location.pathname.match(/\/store\/[^/]+-(\d+)\//);
-  return m ? m[1] : null;
+DD.saveManyInstructions = async function saveManyInstructions(
+  updates,
+  fulfillmentType,
+) {
+  const results = [];
+  for (const { line, specialInstructions } of updates) {
+    await DD.saveCartLineInstructions(line, specialInstructions, fulfillmentType);
+    results.push(line.cartItemId);
+  }
+  return results;
 };
