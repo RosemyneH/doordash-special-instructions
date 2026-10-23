@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "DoorDash Special Instructions",
-  "version": "1.2.0",
+  "version": "1.2.1",
   "description": "Inline per-item special instruction fields on DoorDash cart and checkout.",
   "icons": {
     "16": "icons/icon16.png",
