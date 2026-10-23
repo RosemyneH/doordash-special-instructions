@@ -14,30 +14,7 @@ function isCheckoutPage() {
   return location.pathname.includes("/consumer/checkout");
 }
 
-function findCheckoutCartRoot() {
-  const label = [...document.querySelectorAll("span, p, h2, h3, div")].find(
-    (el) =>
-      el.children.length <= 2 && (el.textContent || "").trim() === "Cart summary",
-  );
-  if (!label) return null;
-
-  let node = label.parentElement;
-  for (let i = 0; i < 10 && node; i++) {
-    const text = node.textContent || "";
-    if (/×/.test(text) && text.includes("$")) return node;
-    node = node.parentElement;
-  }
-  return label.parentElement?.parentElement || null;
-}
-
 function findCartRoots() {
-  if (isCheckoutPage()) {
-    const checkoutRoot = findCheckoutCartRoot();
-    if (checkoutRoot) return [checkoutRoot];
-    const main = document.querySelector("main");
-    return main ? [main] : [];
-  }
-
   const orderCart = document.querySelector('[data-testid="OrderCart"]');
   return orderCart ? [orderCart] : [];
 }
@@ -46,6 +23,13 @@ function blockForLine(cartItemId) {
   return document.querySelector(
     `.ddsi-inline[data-cart-item-id="${CSS.escape(cartItemId)}"]`,
   );
+}
+
+function blockScore(block) {
+  if (block.closest('[data-testid="checkoutItemDetailsWrapper"]')) return 1000;
+  const width = block.getBoundingClientRect().width;
+  if (block.closest('[data-testid="OrderCart"]')) return 10 + width;
+  return 100 + width;
 }
 
 function isNodeVisible(el) {
@@ -67,18 +51,18 @@ function preferBlock(keep, drop) {
   const dropVisible = isNodeVisible(drop);
   if (keepVisible && !dropVisible) return keep;
   if (dropVisible && !keepVisible) return drop;
-
-  if (isCheckoutPage()) {
-    const keepInDrawer = keep.closest('[data-testid="OrderCart"]');
-    const dropInDrawer = drop.closest('[data-testid="OrderCart"]');
-    if (keepInDrawer && !dropInDrawer) return drop;
-    if (dropInDrawer && !keepInDrawer) return keep;
-  }
-
-  return keep;
+  return blockScore(keep) >= blockScore(drop) ? keep : drop;
 }
 
 function dedupeInlinedBlocks() {
+  if (isCheckoutPage()) {
+    for (const block of document.querySelectorAll(
+      '[data-testid="OrderCart"] .ddsi-inline',
+    )) {
+      block.remove();
+    }
+  }
+
   const seen = new Map();
   for (const block of document.querySelectorAll(".ddsi-inline[data-cart-item-id]")) {
     const id = block.dataset.cartItemId;
@@ -129,9 +113,9 @@ function matchLine(row, index) {
   );
 }
 
-function createBlock(line) {
+function createBlock(line, variant) {
   const wrap = document.createElement("div");
-  wrap.className = "ddsi-inline";
+  wrap.className = `ddsi-inline ddsi-inline--${variant}`;
   wrap.dataset.cartItemId = line.cartItemId;
 
   const label = document.createElement("label");
@@ -223,41 +207,78 @@ function syncExistingBlock(line) {
   return true;
 }
 
-function injectIntoRow(row, line) {
-  if (!row || !line) return;
-  if (syncExistingBlock(line)) return;
+function mountBlock(line, block, anchor) {
+  if (anchor.type === "checkout") {
+    anchor.el.appendChild(block);
+    return;
+  }
 
-  const block = createBlock(line);
-  const q = row.querySelector("q");
+  const q = anchor.el.querySelector("q");
   if (q) {
     q.style.display = "none";
+    const listCell = q.closest('[class*="ListCellContainer"]');
+    if (listCell) {
+      listCell.insertAdjacentElement("afterend", block);
+      return;
+    }
     q.insertAdjacentElement("afterend", block);
     return;
   }
 
-  const stepper = row.querySelector('[data-testid="QuantityContainer"]');
-  if (stepper) {
-    const info = stepper.parentElement?.previousElementSibling;
-    if (info && !info.querySelector(".ddsi-inline")) {
-      info.appendChild(block);
-      return;
-    }
+  const listCell = anchor.el.closest?.('[class*="ListCellContainer"]') || anchor.el;
+  if (listCell.matches?.('[class*="ListCellContainer"]')) {
+    listCell.insertAdjacentElement("afterend", block);
+    return;
   }
 
-  if (!row.querySelector(".ddsi-inline")) {
-    row.appendChild(block);
+  anchor.el.appendChild(block);
+}
+
+function injectBlock(line, anchor) {
+  if (!line || !anchor?.el) return;
+
+  const existing = blockForLine(line.cartItemId);
+  if (existing) {
+    if (
+      isCheckoutPage() &&
+      anchor.type === "checkout" &&
+      !anchor.el.contains(existing)
+    ) {
+      existing.className = "ddsi-inline ddsi-inline--checkout";
+      anchor.el.appendChild(existing);
+    }
+    syncExistingBlock(line);
+    return;
   }
+
+  const variant = anchor.type === "checkout" ? "checkout" : "drawer";
+  mountBlock(line, createBlock(line, variant), anchor);
+}
+
+function injectFromCheckoutWrappers() {
+  if (!isCheckoutPage()) return;
+
+  const wrappers = document.querySelectorAll(
+    '[data-testid="checkoutItemDetailsWrapper"]',
+  );
+  const used = new Set();
+
+  wrappers.forEach((wrap, index) => {
+    const line = matchLine(wrap, index);
+    if (!line || used.has(line.cartItemId)) return;
+    used.add(line.cartItemId);
+    injectBlock(line, { type: "checkout", el: wrap });
+  });
 }
 
 function injectFromSteppers(roots) {
+  if (isCheckoutPage()) return;
+
   const steppers = [];
   for (const root of roots) {
     for (const stepper of root.querySelectorAll(
       '[data-testid="QuantityContainer"]',
     )) {
-      if (isCheckoutPage() && stepper.closest('[data-testid="OrderCart"]')) {
-        continue;
-      }
       steppers.push(stepper);
     }
   }
@@ -268,14 +289,15 @@ function injectFromSteppers(roots) {
     const line = matchLine(row, index);
     if (!line || usedLines.has(line.cartItemId)) return;
     usedLines.add(line.cartItemId);
-    injectIntoRow(row, line);
+    injectBlock(line, { type: "drawer", el: row });
   });
 }
 
 function injectFromQuoteTags(roots) {
+  if (isCheckoutPage()) return;
+
   for (const root of roots) {
     for (const q of root.querySelectorAll("q")) {
-      if (isCheckoutPage() && q.closest('[data-testid="OrderCart"]')) continue;
       const row =
         q.closest('[class*="ListCellContainer"]') ||
         q.parentElement?.parentElement?.parentElement;
@@ -289,7 +311,7 @@ function injectFromQuoteTags(roots) {
         ),
       );
       if (!line || blockForLine(line.cartItemId)) continue;
-      injectIntoRow(row, line);
+      injectBlock(line, { type: "drawer", el: row });
     }
   }
 }
@@ -304,14 +326,16 @@ async function sync() {
     return;
   }
 
-  const roots = findCartRoots();
-  if (!roots.length) {
-    syncing = false;
-    return;
+  if (isCheckoutPage()) {
+    injectFromCheckoutWrappers();
+  } else {
+    const roots = findCartRoots();
+    if (roots.length) {
+      injectFromSteppers(roots);
+      injectFromQuoteTags(roots);
+    }
   }
 
-  injectFromSteppers(roots);
-  injectFromQuoteTags(roots);
   dedupeInlinedBlocks();
   syncing = false;
 }
